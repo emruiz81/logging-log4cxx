@@ -21,7 +21,11 @@
 
 #ifdef LOG4CXX_MULTI_PROCESS
 #include <apr_portable.h>
+
+#if !defined(_MSC_VER)
 #include <libgen.h>
+#endif
+
 #include <apr_file_io.h>
 #include <apr_atomic.h>
 #include <apr_mmap.h>
@@ -30,6 +34,7 @@
 #endif
 #include <log4cxx/pattern/filedatepatternconverter.h>
 #include <log4cxx/helpers/date.h>
+#include <log4cxx/helpers/transcoder.h>
 #endif
 
 #include <log4cxx/rolling/rollingfileappender.h>
@@ -167,7 +172,12 @@ bool RollingFileAppenderSkeleton::rollover(Pool& p) {
             synchronized sync(mutex);
 
 #ifdef LOG4CXX_MULTI_PROCESS
+
+#if LOG4CXX_LOGCHAR_IS_WCHAR
+            LOG4CXX_ENCODE_CHAR(fileName, getFile());
+#else
             std::string fileName(getFile());
+#endif
             RollingPolicyBase *basePolicy = dynamic_cast<RollingPolicyBase* >(&(*rollingPolicy));
             apr_time_t n = apr_time_now();
             ObjectPtr obj(new Date(n));
@@ -175,7 +185,13 @@ bool RollingFileAppenderSkeleton::rollover(Pool& p) {
             if (basePolicy){
                 if (basePolicy->getPatternConverterList().size()){
                     (*(basePolicy->getPatternConverterList().begin()))->format(obj, fileNamePattern, p);
-                    fileName = std::string(fileNamePattern);
+                    
+#if LOG4CXX_LOGCHAR_IS_WCHAR
+                    LOG4CXX_ENCODE_CHAR(auxFileNamePattern, fileNamePattern);
+                    fileName = auxFileNamePattern;
+#else
+                    fileName = fileNamePattern;
+#endif
                 }
             }
 
@@ -189,16 +205,36 @@ bool RollingFileAppenderSkeleton::rollover(Pool& p) {
             apr_gid_t groupid;
             apr_status_t stat = apr_uid_current(&uid, &groupid, pool.getAPRPool());
             if (stat == APR_SUCCESS){
-                snprintf(szUid, MAX_FILE_LEN, "%u", uid);
+                snprintf(szUid, MAX_FILE_LEN, "%u", (unsigned int)uid);
             }
 
+#if defined(_MSC_VER)
+            char drive[_MAX_DRIVE];
+            char dir[_MAX_DIR];
+            char fname[_MAX_FNAME];
+            char ext[_MAX_EXT];
+
+            _splitpath(szDirName, drive, dir, fname, ext);
+            std::string lockname;
+            if (strlen(drive) != 0)
+            {
+                lockname = std::string(drive) + "\\";
+            }
+            if (strlen(dir) != 0)
+            {
+                lockname += std::string(dir) + "\\";
+            }
+            lockname += "." + std::string(fname) + std::string(szUid) + ".lock";
+#else
             const std::string lockname = std::string(::dirname(szDirName)) + "/." + ::basename(szBaseName) + szUid + ".lock";
+#endif
             apr_file_t* lock_file;
             stat = apr_file_open(&lock_file, lockname.c_str(), APR_CREATE | APR_READ | APR_WRITE, APR_OS_DEFAULT, p.getAPRPool());
             if (stat != APR_SUCCESS) {
                 std::string err = "lockfile return error: open lockfile failed. ";
                 err += (strerror(errno));
-                LogLog::warn(LOG4CXX_STR(err.c_str()));
+                LOG4CXX_DECODE_CHAR(text, err);
+                LogLog::warn(text);
                 bAlreadyRolled = false;
                 lock_file = NULL;
             }else{
@@ -206,7 +242,8 @@ bool RollingFileAppenderSkeleton::rollover(Pool& p) {
                 if (stat != APR_SUCCESS){
                     std::string err = "apr_file_lock: lock failed. ";
                     err += (strerror(errno));
-                    LogLog::warn(LOG4CXX_STR(err.c_str()));
+                    LOG4CXX_DECODE_CHAR(text, err);
+                    LogLog::warn(text);
                     bAlreadyRolled = false;
                 }
                 else {
@@ -224,7 +261,14 @@ bool RollingFileAppenderSkeleton::rollover(Pool& p) {
                     LogLog::warn(LOG4CXX_STR("apr_file_info_get failed"));
                 }
 
-                st2 = apr_stat(&finfo2, std::string(getFile()).c_str(), APR_FINFO_IDENT, p.getAPRPool());
+#if LOG4CXX_LOGCHAR_IS_WCHAR
+                LOG4CXX_ENCODE_CHAR(auxFileName2, getFile());
+                st2 = apr_stat(&finfo2, auxFileName2.c_str(), APR_FINFO_IDENT, p.getAPRPool());
+#else
+                std::string auxFileName2(getFile());
+                st2 = apr_stat(&finfo2, auxFileName2.c_str(), APR_FINFO_IDENT, p.getAPRPool());
+#endif
+                
                 if (st2 != APR_SUCCESS){
                     LogLog::warn(LOG4CXX_STR("apr_stat failed."));
                 }
@@ -381,10 +425,18 @@ void RollingFileAppenderSkeleton::subAppend(const LoggingEventPtr& event, Pool& 
       LogLog::warn(LOG4CXX_STR("apr_file_info_get failed"));
   }
 
-  st2 = apr_stat(&finfo2, std::string(getFile()).c_str(), APR_FINFO_IDENT, p.getAPRPool());
+#if LOG4CXX_LOGCHAR_IS_WCHAR
+  LOG4CXX_ENCODE_CHAR(fileName, getFile());
+#else
+  std::string fileName = getFile();
+#endif
+
+  st2 = apr_stat(&finfo2, fileName.c_str(), APR_FINFO_IDENT, p.getAPRPool());
   if (st2 != APR_SUCCESS){
-      std::string err = "apr_stat failed. file:" + std::string(getFile());
-      LogLog::warn(LOG4CXX_STR(err.c_str()));
+      std::string err = "apr_stat failed. file:" + fileName;
+
+      LOG4CXX_DECODE_CHAR(text, err);
+      LogLog::warn(text);
   }
 
   bool bAlreadyRolled = ((st1 == APR_SUCCESS) && (st2 == APR_SUCCESS)
