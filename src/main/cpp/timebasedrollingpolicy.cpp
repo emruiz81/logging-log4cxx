@@ -100,13 +100,6 @@ const std::string TimeBasedRollingPolicy::createFile(const std::string& fileName
    memcpy(szDirName, fileName.c_str(), fileName.size() > MAX_FILE_LEN ? MAX_FILE_LEN : fileName.size());
    memcpy(szBaseName, fileName.c_str(), fileName.size() > MAX_FILE_LEN ? MAX_FILE_LEN : fileName.size());
 
-   apr_uid_t uid;
-   apr_gid_t groupid;
-   apr_status_t stat = apr_uid_current(&uid, &groupid, pool.getAPRPool());
-   if (stat == APR_SUCCESS){
-       snprintf(szUid, MAX_FILE_LEN, "%u", (unsigned int)uid);
-   }
-
 #if defined(_MSC_VER)
    char drive[_MAX_DRIVE];
    char dir[_MAX_DIR];
@@ -123,9 +116,16 @@ const std::string TimeBasedRollingPolicy::createFile(const std::string& fileName
    {
        lockname += std::string(dir) + "\\";
    }
-   lockname += "." + std::string(fname) + std::string(szUid) + suffix;
+   lockname += std::string(fname) + std::string(szUid) + suffix;
    return lockname;
 #else
+   apr_uid_t uid;
+   apr_gid_t groupid;
+   apr_status_t stat = apr_uid_current(&uid, &groupid, pool.getAPRPool());
+   if (stat == APR_SUCCESS) {
+       snprintf(szUid, MAX_FILE_LEN, "%u", (unsigned int)uid);
+   }
+
    return std::string(::dirname(szDirName)) + "/." + ::basename(szBaseName) + szUid + suffix;
 #endif
 }

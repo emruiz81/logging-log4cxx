@@ -201,18 +201,12 @@ bool RollingFileAppenderSkeleton::rollover(Pool& p) {
             char szUid[MAX_FILE_LEN] = {'\0'};
             memcpy(szDirName, fileName.c_str(), fileName.size() > MAX_FILE_LEN ? MAX_FILE_LEN : fileName.size());
             memcpy(szBaseName, fileName.c_str(), fileName.size() > MAX_FILE_LEN ? MAX_FILE_LEN : fileName.size());
-            apr_uid_t uid;
-            apr_gid_t groupid;
-            apr_status_t stat = apr_uid_current(&uid, &groupid, pool.getAPRPool());
-            if (stat == APR_SUCCESS){
-                snprintf(szUid, MAX_FILE_LEN, "%u", (unsigned int)uid);
-            }
 
 #if defined(_MSC_VER)
-            char drive[_MAX_DRIVE];
-            char dir[_MAX_DIR];
-            char fname[_MAX_FNAME];
-            char ext[_MAX_EXT];
+            char drive[_MAX_DRIVE] = { '\0' };
+            char dir[_MAX_DIR] = { '\0' };
+            char fname[_MAX_FNAME] = { '\0' };
+            char ext[_MAX_EXT] = { '\0' };
 
             _splitpath(szDirName, drive, dir, fname, ext);
             std::string lockname;
@@ -224,12 +218,18 @@ bool RollingFileAppenderSkeleton::rollover(Pool& p) {
             {
                 lockname += std::string(dir) + "\\";
             }
-            lockname += "." + std::string(fname) + std::string(szUid) + ".lock";
+            lockname += std::string(fname) + std::string(szUid) + ".lock";
 #else
+            apr_uid_t uid;
+            apr_gid_t groupid;
+            apr_status_t stat_uid = apr_uid_current(&uid, &groupid, pool.getAPRPool());
+            if (stat_uid == APR_SUCCESS) {
+                snprintf(szUid, MAX_FILE_LEN, "%u", (unsigned int)uid);
+            }
             const std::string lockname = std::string(::dirname(szDirName)) + "/." + ::basename(szBaseName) + szUid + ".lock";
 #endif
             apr_file_t* lock_file;
-            stat = apr_file_open(&lock_file, lockname.c_str(), APR_CREATE | APR_READ | APR_WRITE, APR_OS_DEFAULT, p.getAPRPool());
+            apr_status_t stat = apr_file_open(&lock_file, lockname.c_str(), APR_CREATE | APR_READ | APR_WRITE, APR_OS_DEFAULT, p.getAPRPool());
             if (stat != APR_SUCCESS) {
                 std::string err = "lockfile return error: open lockfile failed. ";
                 err += (strerror(errno));
